@@ -38,6 +38,9 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
+      // ✅ Debug : afficher la réponse brute du backend
+      console.log("Réponse backend =", res);
+
       if (res.error) {
         setError(res.error); // ✅ Affiche le message exact du backend
       } else if (res.token) {
@@ -48,6 +51,7 @@ export default function LoginPage() {
         setError("Une erreur inconnue est survenue");
       }
     } catch (err) {
+      console.error("Erreur réseau ou serveur :", err);
       setError("Impossible de contacter le serveur");
     } finally {
       setLoading(false);
