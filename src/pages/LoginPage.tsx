@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api/client";
 
 export default function LoginPage() {
@@ -9,6 +9,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // ✅ Redirection automatique si déjà connecté
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      window.location.href = "/chat";
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,18 +30,20 @@ export default function LoginPage() {
     }
 
     try {
-      const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+      const endpoint =
+        mode === "login" ? "/api/auth/login" : "/api/auth/register";
+
       const res = await api(endpoint, {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
 
       if (res.error) {
-        setError(res.error); // ✅ On affiche le message exact du backend
+        setError(res.error); // ✅ Affiche le message exact du backend
       } else if (res.token) {
         localStorage.setItem("token", res.token);
         localStorage.setItem("user", JSON.stringify(res.user));
-        window.location.href = "/chat";
+        window.location.href = "/chat"; // ✅ Redirection après succès
       } else {
         setError("Une erreur inconnue est survenue");
       }
@@ -60,7 +70,9 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Email */}
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Email</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
+              Email
+            </label>
             <input
               type="email"
               placeholder="Votre email"
@@ -73,7 +85,9 @@ export default function LoginPage() {
 
           {/* Mot de passe */}
           <div>
-            <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Mot de passe</label>
+            <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
+              Mot de passe
+            </label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
@@ -99,23 +113,14 @@ export default function LoginPage() {
               <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">
                 Confirmer le mot de passe
               </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Confirmez votre mot de passe"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none dark:bg-gray-700 dark:text-white"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-2 text-gray-500 dark:text-gray-300 text-sm"
-                >
-                  {showPassword ? "🙈" : "👁️"}
-                </button>
-              </div>
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Confirmez votre mot de passe"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none dark:bg-gray-700 dark:text-white"
+              />
             </div>
           )}
 

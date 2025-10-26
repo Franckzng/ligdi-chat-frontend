@@ -20,15 +20,19 @@ export async function api(path: string, options: RequestInit = {}) {
     },
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text);
-  }
-
-  // Si la réponse est vide (ex: 204 No Content), éviter une erreur de parsing
+  // Gestion des erreurs
+  let data: any = null;
   const contentType = res.headers.get("content-type");
   if (contentType && contentType.includes("application/json")) {
-    return res.json();
+    data = await res.json();
+  } else {
+    data = await res.text();
   }
-  return null;
+
+  if (!res.ok) {
+    // Retourner un objet clair avec l'erreur
+    return { error: data?.error || data || "Erreur inconnue" };
+  }
+
+  return data;
 }
