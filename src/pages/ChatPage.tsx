@@ -208,6 +208,7 @@ export default function ChatPage() {
     switch (msg.type) {
       case "TEXT":
         return <div className="whitespace-pre-wrap break-words">{msg.content}</div>;
+    
       case "IMAGE":
         return (
           <img
@@ -217,24 +218,28 @@ export default function ChatPage() {
             onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
           />
         );
+      
       case "AUDIO":
         return (
           <audio controls className="w-64">
-            <source src={msg.content} />
+            <source src={msg.content} type="audio/mpeg" />
             Votre navigateur ne supporte pas l’audio.
           </audio>
         );
+      
       case "VIDEO":
         return (
           <video controls className="max-w-xs rounded-lg">
-            <source src={msg.content} />
+            <source src={msg.content} type="video/mp4" />
             Votre navigateur ne supporte pas la vidéo.
           </video>
         );
+      
       default:
         return <div>Message non supporté</div>;
     }
   }
+
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
