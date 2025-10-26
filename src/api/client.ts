@@ -1,5 +1,8 @@
 const API_URL = import.meta.env.VITE_API_URL;
 
+// ✅ Debug : afficher l'URL API en console (utile en prod)
+console.log("API_URL =", API_URL);
+
 export async function api(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem("token");
 
