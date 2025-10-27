@@ -205,10 +205,11 @@ export default function ChatPage() {
   }
 
   function renderMessageContent(msg: Message) {
+    console.log("DEBUG message reçu :", msg); 
     switch (msg.type) {
       case "TEXT":
         return <div className="whitespace-pre-wrap break-words">{msg.content}</div>;
-    
+
       case "IMAGE":
         return (
           <img
@@ -218,7 +219,7 @@ export default function ChatPage() {
             onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
           />
         );
-      
+
       case "AUDIO":
         return (
           <audio controls className="w-64">
@@ -226,7 +227,7 @@ export default function ChatPage() {
             Votre navigateur ne supporte pas l’audio.
           </audio>
         );
-      
+
       case "VIDEO":
         return (
           <video controls className="max-w-xs rounded-lg">
@@ -234,7 +235,7 @@ export default function ChatPage() {
             Votre navigateur ne supporte pas la vidéo.
           </video>
         );
-      
+
       default:
         return <div>Message non supporté</div>;
     }
