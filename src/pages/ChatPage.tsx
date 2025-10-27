@@ -1,28 +1,14 @@
 // src/pages/ChatPage.tsx
+// --- Page principale de chat : conversations, utilisateurs, messages (envoi, suppression), socket et responsivité ---
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { connectSocket, getSocket } from "../api/socket";
-
-type Conversation = {
-  id: number;
-  userA: { id: number; email: string };
-  userB: { id: number; email: string };
-  lastMessage?: { content: string; createdAt: string };
-};
-
-type Message = {
-  id: number;
-  content: string;
-  senderId: number;
-  conversationId: number;
-  createdAt: string;
-  type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO";
-};
-
-type User = { id: number; email: string };
+import MessageBubble from "../components/MessageBubble";
+import type { Message, Conversation, User } from "../types";
 
 export default function ChatPage() {
+  // --- États ---
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [active, setActive] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -32,150 +18,28 @@ export default function ChatPage() {
   const [search, setSearch] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  // --- Références ---
   const navigate = useNavigate();
   const msgInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
+  // --- Utilisateur courant ---
   const me = useMemo(() => {
     const raw = localStorage.getItem("user");
     return raw ? (JSON.parse(raw) as User) : null;
   }, []);
 
+  // --- Déconnexion ---
   function handleLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     navigate("/login");
   }
 
-  // Initial data + sockets for status + new messages
-  useEffect(() => {
-    api("/api/conversations").then(setConversations);
-    api("/api/users").then(setUsers);
-
-    const token = localStorage.getItem("token");
-    if (!token || !me) return;
-
-    const socket = connectSocket(token);
-    socket.emit("user_connected", me);
-
-    socket.on("user_status", ({ userId, status }: { userId: number; status: "online" | "offline" }) => {
-      setOnlineUsers((prev) => {
-        if (status === "online" && !prev.includes(userId)) return [...prev, userId];
-        if (status === "offline") return prev.filter((id) => id !== userId);
-        return prev;
-      });
-    });
-
-    socket.on("new_message", (msg: Message) => {
-      // Mettre à jour le lastMessage côté liste
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === msg.conversationId
-            ? { ...c, lastMessage: { content: msg.content, createdAt: msg.createdAt } }
-            : c
-        )
-      );
-      // Ajouter dans le panneau actif sans doublon
-      if (active?.id === msg.conversationId) {
-        setMessages((prev) => {
-          const exists = prev.some((m) => m.id === msg.id);
-          return exists ? prev : [...prev, msg];
-        });
-        scrollToBottom();
-      }
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [me, active]);
-
-  // Load messages when conversation changes + typing indicators
-  useEffect(() => {
-    if (!active) return;
-
-    api(`/api/messages/${active.id}`).then((msgs: Message[]) => {
-      setMessages(msgs);
-      scrollToBottom();
-    });
-
-    const socket = getSocket();
-    if (!socket) return;
-
-    socket.emit("join_conversation", active.id);
-
-    const typingHandler = ({ user: typingUser }: { user: User }) => {
-      if (!me || typingUser.email === me.email) return;
-      setTypingUsers((prev) => (prev.includes(typingUser.email) ? prev : [...prev, typingUser.email]));
-    };
-    const stopTypingHandler = ({ user: typingUser }: { user: User }) => {
-      setTypingUsers((prev) => prev.filter((u) => u !== typingUser.email));
-    };
-
-    socket.on("typing", typingHandler);
-    socket.on("stop_typing", stopTypingHandler);
-
-    return () => {
-      socket.emit("leave_conversation", active.id);
-      socket.off("typing", typingHandler);
-      socket.off("stop_typing", stopTypingHandler);
-    };
-  }, [active, me]);
-
-  async function sendMessage(content: string) {
-    if (!active) return;
-    const trimmed = content.trim();
-    if (!trimmed) return;
-    const msg: Message = await api(`/api/messages/${active.id}`, {
-      method: "POST",
-      body: JSON.stringify({ content: trimmed }),
-    });
-
-    // Dédupliquer côté client
-    setMessages((prev) => {
-      const exists = prev.some((m) => m.id === msg.id);
-      return exists ? prev : [...prev, msg];
-    });
-
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === active.id ? { ...c, lastMessage: { content: msg.content, createdAt: msg.createdAt } } : c
-      )
-    );
-    scrollToBottom();
-  }
-
-  async function sendFile(file: File, type: "IMAGE" | "AUDIO" | "VIDEO") {
-    if (!active) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("type", type);
-      const msg: Message = await api(`/api/messages/${active.id}/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      setMessages((prev) => {
-        const exists = prev.some((m) => m.id === msg.id);
-        return exists ? prev : [...prev, msg];
-      });
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === active.id ? { ...c, lastMessage: { content: msg.content, createdAt: msg.createdAt } } : c
-        )
-      );
-      scrollToBottom();
-    } finally {
-      setUploading(false);
-      if (imageInputRef.current) imageInputRef.current.value = "";
-      if (audioInputRef.current) audioInputRef.current.value = "";
-      if (videoInputRef.current) videoInputRef.current.value = "";
-    }
-  }
-
+  // --- Démarrer une conversation ---
   async function startConversation(email: string) {
     if (!email || !me || email === me.email) return;
     const conv: Conversation = await api("/api/conversations", {
@@ -189,6 +53,169 @@ export default function ChatPage() {
     setActive(conv);
   }
 
+  // --- Initialisation socket et data globales ---
+  useEffect(() => {
+    // Charger la liste des conversations et des utilisateurs
+    api("/api/conversations").then(setConversations);
+    api("/api/users").then(setUsers);
+
+    // Connecter le socket si authentifié
+    const token = localStorage.getItem("token");
+    if (!token || !me) return;
+
+    const socket = connectSocket(token);
+    socket.emit("user_connected", me);
+
+    // Statuts en ligne/hors ligne
+    socket.on("user_status", ({ userId, status }: { userId: number; status: "online" | "offline" }) => {
+      setOnlineUsers((prev) => {
+        if (status === "online" && !prev.includes(userId)) return [...prev, userId];
+        if (status === "offline") return prev.filter((id) => id !== userId);
+        return prev;
+      });
+    });
+
+    // Nouveau message reçu
+    socket.on("new_message", (msg: Message) => {
+      // Mettre à jour l’aperçu côté liste des conversations
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === msg.conversationId ? { ...c, lastMessage: { content: msg.content, createdAt: msg.createdAt } } : c
+        )
+      );
+      // Ajouter dans le panneau actif si c’est la conversation ouverte
+      if (active?.id === msg.conversationId) {
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === msg.id);
+          return exists ? prev : [...prev, msg];
+        });
+      }
+    });
+
+    // Message supprimé (diffusé à tous)
+    socket.on("message_deleted", ({ id }: { id: number }) => {
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [me, active]);
+
+  // --- Quand on change de conversation : charger messages + indicateurs de frappe ---
+  useEffect(() => {
+    if (!active) return;
+
+    // Charger les messages de la conversation active
+    api(`/api/messages/${active.id}`).then((msgs: Message[]) => {
+      setMessages(msgs);
+      // Optionnel: scroll au chargement initial
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    });
+
+    // Joindre la room socket de la conversation
+    const socket = getSocket();
+    if (!socket) return;
+    socket.emit("join_conversation", active.id);
+
+    // Indicateurs “en train d’écrire”
+    const typingHandler = ({ user: typingUser }: { user: User }) => {
+      if (!me || typingUser.email === me.email) return;
+      setTypingUsers((prev) => (prev.includes(typingUser.email) ? prev : [...prev, typingUser.email]));
+    };
+    const stopTypingHandler = ({ user: typingUser }: { user: User }) => {
+      setTypingUsers((prev) => prev.filter((u) => u !== typingUser.email));
+    };
+
+    socket.on("typing", typingHandler);
+    socket.on("stop_typing", stopTypingHandler);
+
+    // Nettoyage
+    return () => {
+      socket.emit("leave_conversation", active.id);
+      socket.off("typing", typingHandler);
+      socket.off("stop_typing", stopTypingHandler);
+    };
+  }, [active, me]);
+
+  // --- Défilement fluide vers le bas quand la liste des messages change ---
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // --- Envoyer un message texte ---
+  async function sendMessage(content: string) {
+    if (!active) return;
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    const msg: Message = await api(`/api/messages/${active.id}`, {
+      method: "POST",
+      body: JSON.stringify({ content: trimmed }),
+    });
+
+    // Mise à jour locale (éviter doublons)
+    setMessages((prev) => {
+      const exists = prev.some((m) => m.id === msg.id);
+      return exists ? prev : [...prev, msg];
+    });
+
+    // Mise à jour de l’aperçu côté liste
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === active.id ? { ...c, lastMessage: { content: msg.content, createdAt: msg.createdAt } } : c
+      )
+    );
+  }
+
+  // --- Envoyer un fichier (image, audio, vidéo) ---
+  async function sendFile(file: File, type: "IMAGE" | "AUDIO" | "VIDEO") {
+    if (!active) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("type", type);
+      const msg: Message = await api(`/api/messages/${active.id}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === msg.id);
+        return exists ? prev : [...prev, msg];
+      });
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === active.id ? { ...c, lastMessage: { content: msg.content, createdAt: msg.createdAt } } : c
+        )
+      );
+    } finally {
+      setUploading(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      if (audioInputRef.current) audioInputRef.current.value = "";
+      if (videoInputRef.current) videoInputRef.current.value = "";
+    }
+  }
+
+  // --- Supprimer un message (avec confirmation) ---
+  async function deleteMessage(id: number) {
+    if (!active) return;
+    const ok = window.confirm("Supprimer ce message ?");
+    if (!ok) return;
+
+    try {
+      await api(`/api/messages/${id}`, { method: "DELETE" });
+      // Mise à jour optimiste côté client (le socket mettra à jour les autres)
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      console.error("Erreur suppression message:", err);
+    }
+  }
+
+  // --- Émettre les événements “typing” ---
   function handleTyping() {
     const socket = getSocket();
     if (!socket || !active || !me) return;
@@ -199,96 +226,33 @@ export default function ChatPage() {
     }, 1500);
   }
 
+  // --- Retourner l’autre participant d’une conversation ---
   function otherUser(conv: Conversation): User {
     if (!me) return { id: 0, email: "" };
     return conv.userA.id === me.id ? conv.userB : conv.userA;
   }
 
-  function renderMessageContent(msg: Message) {
-  console.log("DEBUG message reçu :", msg);
-
-  switch (msg.type) {
-    case "TEXT":
-      return <div className="whitespace-pre-wrap break-words">{msg.content}</div>;
-
-    case "IMAGE":
-      return (
-        <img
-          src={msg.content}
-          alt="image envoyée"
-          className="max-w-xs rounded-lg"
-          onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-        />
-      );
-
-    case "AUDIO":
-      return (
-        <audio controls className="w-64">
-          <source src={msg.content} type="audio/mpeg" />
-          Votre navigateur ne supporte pas l’audio.
-        </audio>
-      );
-
-    case "VIDEO":
-      return (
-        <video controls className="max-w-xs rounded-lg">
-          <source src={msg.content} type="video/mp4" />
-          Votre navigateur ne supporte pas la vidéo.
-        </video>
-      );
-
-    // ✅ Sécurité : si jamais un type inattendu arrive
-    default:
-      // Si c’est une URL d’image mais type inconnu
-      if (msg.content?.match(/\.(jpg|jpeg|png|gif)$/i)) {
-        return (
-          <img
-            src={msg.content}
-            alt="image envoyée"
-            className="max-w-xs rounded-lg"
-          />
-        );
-      }
-      // Si c’est une URL vidéo mais type inconnu
-      if (msg.content?.match(/\.(mp4|webm|ogg)$/i)) {
-        return (
-          <video controls className="max-w-xs rounded-lg">
-            <source src={msg.content} type="video/mp4" />
-          </video>
-        );
-      }
-      // Sinon fallback
-      return <div>Message non supporté</div>;
-  }
-}
-
-
-
-  function scrollToBottom() {
-    requestAnimationFrame(() => {
-      const container = document.getElementById("messages-container");
-      if (container) container.scrollTop = container.scrollHeight;
-    });
-  }
-
+  // --- Filtrer la liste des utilisateurs par email ---
   const filteredUsers = users.filter((u) => u.email.toLowerCase().includes(search.toLowerCase()));
 
+  // --- Rendu principal (responsive) ---
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
-      {/* Header */}
-      <header className="flex items-center justify-between px-6 py-3 border-b bg-white dark:bg-gray-800 dark:border-gray-700 shadow-sm">
+      {/* En-tête (padding responsive) */}
+      <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b bg-white dark:bg-gray-800 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-full bg-blue-600 text-white grid place-items-center font-bold">L</div>
           <span className="text-lg font-bold text-gray-800 dark:text-gray-100">LigdiChat</span>
         </div>
-        <button onClick={handleLogout} className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700">
+        <button onClick={handleLogout} className="px-3 sm:px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700">
           Déconnexion
         </button>
       </header>
 
-      <div className="flex flex-1">
-        {/* Conversations */}
-        <aside className="w-72 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 flex flex-col">
+      {/* Layout responsive: mobile = colonne unique ; md = conversations + chat ; lg = conversations + utilisateurs + chat */}
+      <div className="flex flex-1 flex-col md:flex-row">
+        {/* Conversations (visible à partir de md) */}
+        <aside className="hidden md:block md:w-64 lg:w-72 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800">
           <div className="p-4">
             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-3">Conversations</h3>
             <div className="space-y-1">
@@ -320,8 +284,8 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        {/* Utilisateurs */}
-        <aside className="w-72 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 flex flex-col">
+        {/* Utilisateurs (visible à partir de lg) */}
+        <aside className="hidden lg:block lg:w-72 border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800">
           <div className="p-4 border-b border-gray-200 dark:border-gray-800">
             <h3 className="font-bold text-gray-700 dark:text-gray-200">Utilisateurs inscrits</h3>
             <div className="mt-3">
@@ -341,9 +305,7 @@ export default function ChatPage() {
               <div key={`user-${u.id}`} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      onlineUsers.includes(u.id) ? "bg-green-500" : "bg-gray-400"
-                    }`}
+                    className={`h-2.5 w-2.5 rounded-full ${onlineUsers.includes(u.id) ? "bg-green-500" : "bg-gray-400"}`}
                     title={onlineUsers.includes(u.id) ? "En ligne" : "Hors ligne"}
                   />
                   <span className="text-sm text-gray-800 dark:text-gray-100">{u.email}</span>
@@ -359,22 +321,26 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        {/* Panneau de chat */}
+        {/* Panneau de chat (toujours visible, prend tout l'espace disponible) */}
         <main className="flex-1 flex flex-col">
           {active ? (
             <>
-              {/* En-tête conversation */}
-              <div className="border-b border-gray-200 dark:border-gray-800 p-4 flex items-center justify-between">
+              {/* En-tête de la conversation */}
+              <div className="border-b border-gray-200 dark:border-gray-800 p-3 sm:p-4 flex items-center justify-between">
                 <div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Chat avec</div>
-                  <div className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                  <div className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-100">
                     {otherUser(active).email}
                   </div>
                 </div>
               </div>
 
-              {/* Messages */}
-              <div id="messages-container" className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 dark:bg-gray-900/40">
+              {/* Zone des messages (défilement fluide, largeur adaptative) */}
+              <div
+                id="messages-container"
+                className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 sm:space-y-3 bg-gray-50 dark:bg-gray-900/40"
+                style={{ scrollBehavior: "smooth" }}
+              >
                 {messages.length === 0 && (
                   <div className="h-full flex items-center justify-center">
                     <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -383,35 +349,22 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {messages.map((m, index) => {
-                  const mine = me && m.senderId === me.id;
-                  return (
-                    <div key={`msg-${m.id}-${index}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div
-                        className={`px-3 py-2 rounded-2xl max-w-md shadow-sm ${
-                          mine
-                            ? "bg-blue-600 text-white"
-                            : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700"
-                        }`}
-                      >
-                        {!mine && <div className="text-[11px] opacity-70 mb-1">Autre</div>}
-                        {renderMessageContent(m)}
-                        <div className={`text-[11px] mt-1 ${mine ? "opacity-80" : "text-gray-500 dark:text-gray-400"}`}>
-                          {new Date(m.createdAt).toLocaleTimeString()}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {messages.map((m) => (
+                  <MessageBubble key={m.id} msg={m} currentUserId={me?.id ?? 0} onDelete={deleteMessage} />
+                ))}
 
+                {/* Indicateur “en train d’écrire” */}
                 {typingUsers.length > 0 && (
                   <div className="italic text-gray-500 dark:text-gray-400 text-sm">
                     {typingUsers.join(", ")} est en train d’écrire...
                   </div>
                 )}
+
+                {/* Ancre de défilement fluide */}
+                <div ref={bottomRef} />
               </div>
 
-              {/* Composer */}
+              {/* Compositeur de message (layout compact sur mobile) */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -422,7 +375,7 @@ export default function ChatPage() {
                     if (input) input.value = "";
                   }
                 }}
-                className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-3"
+                className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-2 sm:p-3"
               >
                 <div className="flex items-center gap-2">
                   <input
@@ -430,11 +383,11 @@ export default function ChatPage() {
                     name="msg"
                     placeholder="Écrire un message..."
                     onChange={handleTyping}
-                    className="flex-1 px-4 py-2 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 outline-none"
+                    className="flex-1 px-3 py-2 text-sm sm:text-base rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 outline-none"
                   />
                   <div className="flex items-center gap-2">
                     {/* Image */}
-                    <label className="px-3 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-sm cursor-pointer">
+                    <label className="px-2 sm:px-3 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-xs sm:text-sm cursor-pointer">
                       Image
                       <input
                         ref={imageInputRef}
@@ -448,7 +401,7 @@ export default function ChatPage() {
                       />
                     </label>
                     {/* Audio */}
-                    <label className="px-3 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-sm cursor-pointer">
+                    <label className="px-2 sm:px-3 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-xs sm:text-sm cursor-pointer">
                       Audio
                       <input
                         ref={audioInputRef}
@@ -462,7 +415,7 @@ export default function ChatPage() {
                       />
                     </label>
                     {/* Vidéo */}
-                    <label className="px-3 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-sm cursor-pointer">
+                    <label className="px-2 sm:px-3 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-xs sm:text-sm cursor-pointer">
                       Vidéo
                       <input
                         ref={videoInputRef}
@@ -478,9 +431,9 @@ export default function ChatPage() {
                     <button
                       type="submit"
                       disabled={uploading}
-                      className={`px-4 py-2 rounded-full ${
+                      className={`px-3 sm:px-4 py-2 rounded-full ${
                         uploading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-                      } text-white`}
+                      } text-white text-sm sm:text-base`}
                     >
                       {uploading ? "Envoi..." : "Envoyer"}
                     </button>
@@ -489,7 +442,8 @@ export default function ChatPage() {
               </form>
             </>
           ) : (
-            <div className="flex-1 grid place-items-center text-gray-500 dark:text-gray-400">
+            // Écran d’accueil si aucune conversation n’est active
+            <div className="flex-1 grid place-items-center text-gray-500 dark:text-gray-400 p-6">
               <div className="text-center">
                 <div className="text-lg font-semibold mb-1">Bienvenue 👋</div>
                 <div className="text-sm">Sélectionne une conversation ou démarre une nouvelle.</div>
