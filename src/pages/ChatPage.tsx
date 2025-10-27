@@ -6,16 +6,48 @@ import { connectSocket, getSocket } from "../api/socket";
 import MessageBubble from "../components/MessageBubble";
 import type { Message, Conversation, User } from "../types";
 
+// --- Hook scroll intelligent ---
+function useSmartScroll(containerId: string, deps: any[] = []) {
+  const shouldScrollRef = useRef(true);
+
+  useEffect(() => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // Si l’utilisateur est à moins de 100px du bas, on considère qu’il veut suivre
+      shouldScrollRef.current = scrollHeight - scrollTop - clientHeight < 100;
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (shouldScrollRef.current) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
+  }, deps);
+}
+
+
+
 export default function ChatPage() {
   // --- États ---
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [active, setActive] = useState<Conversation | null>(null);
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<number[]>([]);
   const [search, setSearch] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // toggle mobile
 
   // --- Références ---
   const navigate = useNavigate();
@@ -24,6 +56,8 @@ export default function ChatPage() {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  
+  useSmartScroll("messages-container", [messages]);
 
   // --- Utilisateur courant ---
   const me = useMemo(() => {
@@ -50,6 +84,7 @@ export default function ChatPage() {
       return exists ? prev : [conv, ...prev];
     });
     setActive(conv);
+    setSidebarOpen(false); // fermer le menu sur mobile
   }
 
   // --- Initialisation socket et data ---
@@ -181,6 +216,7 @@ export default function ChatPage() {
     if (!active) return;
     const ok = window.confirm("Supprimer ce message ?");
     if (!ok) return;
+
     try {
       await api(`/api/messages/${id}`, { method: "DELETE" });
       setMessages((prev) => prev.filter((m) => m.id !== id));
@@ -209,45 +245,123 @@ export default function ChatPage() {
   // --- Filtrage utilisateurs ---
   const filteredUsers = users.filter((u) => u.email.toLowerCase().includes(search.toLowerCase()));
 
-  // --- Rendu principal, toutes sections visibles aussi sur mobile (empilées) ---
+  // --- Rendu principal ---
   return (
     <div className="flex flex-col min-h-screen bg-gray-100 dark:bg-gray-900">
       {/* En-tête */}
       <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b bg-white dark:bg-gray-800 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-2">
+          {/* Bouton menu mobile */}
+          <button
+            className="md:hidden text-gray-700 dark:text-gray-200 text-2xl"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label="Ouvrir le menu"
+          >
+            ☰
+          </button>
           <div className="h-8 w-8 rounded-full bg-blue-600 text-white grid place-items-center font-bold">L</div>
           <span className="text-lg font-bold text-gray-800 dark:text-gray-100">LigdiChat</span>
         </div>
-        <button onClick={handleLogout} className="px-3 sm:px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700">
+        <button
+          onClick={handleLogout}
+          className="px-3 sm:px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+        >
           Déconnexion
         </button>
       </header>
 
-      {/* Layout global: empilé sur mobile, côte-à-côte sur md+ */}
-      <div className="flex flex-1 flex-col md:flex-row">
-        {/* Conversations (visible aussi sur mobile, pleine largeur; colonne à partir de md) */}
-        <aside className="w-full md:w-64 lg:w-72 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800">
-          <div className="p-4">
-            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-3">Conversations</h3>
+      <div className="flex flex-1">
+        {/* Sidebar mobile (overlay) */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-40 flex md:hidden">
+            <div className="w-72 bg-white dark:bg-gray-800 shadow-lg overflow-y-auto">
+              {/* Conversations */}
+              <div className="p-4 border-b dark:border-gray-700">
+                <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-2">Conversations</h3>
+                {conversations.length === 0 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Aucune conversation.</div>
+                )}
+                {conversations.map((c) => {
+                  const other = otherUser(c);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        setActive(c);
+                        setSidebarOpen(false);
+                      }}
+                      className={`block w-full text-left p-2 rounded ${
+                        active?.id === c.id
+                          ? "bg-blue-100 dark:bg-blue-700/40"
+                          : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      <div className="text-sm text-gray-800 dark:text-gray-100 truncate">{other.email}</div>
+                      {c.lastMessage && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {c.lastMessage.content}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Utilisateurs */}
+              <div className="p-4">
+                <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-2">Utilisateurs inscrits</h3>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher..."
+                  className="w-full mb-3 px-2 py-1 rounded border border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-100"
+                />
+                {filteredUsers.length === 0 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Aucun utilisateur.</div>
+                )}
+                {filteredUsers.map((u) => (
+                  <div key={u.id} className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-800 dark:text-gray-100">{u.email}</span>
+                    <button
+                      onClick={() => {
+                        startConversation(u.email);
+                        setSidebarOpen(false);
+                      }}
+                      className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      Démarrer
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Zone clic pour fermer */}
+            <div className="flex-1 bg-black bg-opacity-50" onClick={() => setSidebarOpen(false)} />
+          </div>
+        )}
+
+        {/* Sidebar desktop (toujours visible à partir de md) */}
+        <aside className="hidden md:flex md:flex-col md:w-64 lg:w-72 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-2">Conversations</h3>
+            {conversations.length === 0 && (
+              <div className="text-xs text-gray-500 dark:text-gray-400">Aucune conversation.</div>
+            )}
             <div className="space-y-1">
-              {conversations.length === 0 && (
-                <div className="text-xs text-gray-500 dark:text-gray-400">Aucune conversation pour l’instant.</div>
-              )}
               {conversations.map((c) => {
                 const other = otherUser(c);
                 return (
                   <button
-                    key={`conv-${c.id}`}
+                    key={c.id}
                     onClick={() => setActive(c)}
-                    className={`w-full text-left p-3 rounded-lg transition ${
+                    className={`block w-full text-left p-2 rounded ${
                       active?.id === c.id
-                        ? "bg-blue-100 dark:bg-blue-700/40 font-semibold"
+                        ? "bg-blue-100 dark:bg-blue-700/40"
                         : "hover:bg-gray-100 dark:hover:bg-gray-700"
                     }`}
                   >
                     <div className="text-sm text-gray-800 dark:text-gray-100 truncate">{other.email}</div>
                     {c.lastMessage && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                         {c.lastMessage.content}
                       </div>
                     )}
@@ -256,48 +370,43 @@ export default function ChatPage() {
               })}
             </div>
           </div>
-        </aside>
 
-        {/* Utilisateurs inscrits (visible aussi sur mobile, pleine largeur; colonne à partir de md) */}
-        <aside className="w-full md:w-64 lg:w-72 border-b md:border-b-0 md:border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-            <h3 className="font-bold text-gray-700 dark:text-gray-200">Utilisateurs inscrits</h3>
-            <div className="mt-3">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher un email..."
-                className="w-full text-sm px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 outline-none"
-              />
+          <div className="p-4">
+            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-2">Utilisateurs inscrits</h3>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher..."
+              className="w-full mb-3 px-2 py-1 rounded border border-gray-300 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-100"
+            />
+            <div className="space-y-2">
+              {filteredUsers.length === 0 && (
+                <div className="text-xs text-gray-500 dark:text-gray-400">Aucun utilisateur.</div>
+              )}
+              {filteredUsers.map((u) => (
+                <div key={u.id} className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        onlineUsers.includes(u.id) ? "bg-green-500" : "bg-gray-400"
+                      }`}
+                      title={onlineUsers.includes(u.id) ? "En ligne" : "Hors ligne"}
+                    />
+                    <span className="text-sm text-gray-800 dark:text-gray-100">{u.email}</span>
+                  </div>
+                  <button
+                    onClick={() => startConversation(u.email)}
+                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Démarrer
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="p-4 space-y-3 overflow-y-auto max-h-64 md:max-h-none">
-            {filteredUsers.length === 0 && (
-              <div className="text-xs text-gray-500 dark:text-gray-400">Aucun utilisateur trouvé.</div>
-            )}
-            {filteredUsers.map((u) => (
-              <div key={`user-${u.id}`} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      onlineUsers.includes(u.id) ? "bg-green-500" : "bg-gray-400"
-                    }`}
-                    title={onlineUsers.includes(u.id) ? "En ligne" : "Hors ligne"}
-                  />
-                  <span className="text-sm text-gray-800 dark:text-gray-100">{u.email}</span>
-                </div>
-                <button
-                  onClick={() => startConversation(u.email)}
-                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  Démarrer
-                </button>
-              </div>
-            ))}
-          </div>
         </aside>
 
-        {/* Panneau de chat (toujours visible, s’étend sur le reste) */}
+        {/* Zone de chat */}
         <main className="flex-1 flex flex-col">
           {active ? (
             <>

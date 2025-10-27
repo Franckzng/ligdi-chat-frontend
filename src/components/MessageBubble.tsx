@@ -9,10 +9,8 @@ type Props = {
 };
 
 export default function MessageBubble({ msg, currentUserId, onDelete }: Props) {
-  // Vérifie si le message appartient à l’utilisateur courant
   const mine = useMemo(() => msg.senderId === currentUserId, [msg, currentUserId]);
 
-  // Rendu du contenu selon le type
   const renderContent = () => {
     switch (msg.type) {
       case "TEXT":
@@ -46,15 +44,10 @@ export default function MessageBubble({ msg, currentUserId, onDelete }: Props) {
             : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700"
           }`}
       >
-        {/* Contenu du message */}
         {renderContent()}
-
-        {/* Horodatage */}
         <div className={`text-[11px] mt-1 ${mine ? "opacity-80" : "text-gray-500 dark:text-gray-400"}`}>
           {new Date(msg.createdAt).toLocaleTimeString()}
         </div>
-
-        {/* Bouton suppression (uniquement pour l’auteur) */}
         {mine && (
           <button
             onClick={() => onDelete(msg.id)}
