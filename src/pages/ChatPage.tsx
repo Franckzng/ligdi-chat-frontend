@@ -205,41 +205,63 @@ export default function ChatPage() {
   }
 
   function renderMessageContent(msg: Message) {
-    console.log("DEBUG message reçu :", msg); 
-    switch (msg.type) {
-      case "TEXT":
-        return <div className="whitespace-pre-wrap break-words">{msg.content}</div>;
+  console.log("DEBUG message reçu :", msg);
 
-      case "IMAGE":
+  switch (msg.type) {
+    case "TEXT":
+      return <div className="whitespace-pre-wrap break-words">{msg.content}</div>;
+
+    case "IMAGE":
+      return (
+        <img
+          src={msg.content}
+          alt="image envoyée"
+          className="max-w-xs rounded-lg"
+          onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
+        />
+      );
+
+    case "AUDIO":
+      return (
+        <audio controls className="w-64">
+          <source src={msg.content} type="audio/mpeg" />
+          Votre navigateur ne supporte pas l’audio.
+        </audio>
+      );
+
+    case "VIDEO":
+      return (
+        <video controls className="max-w-xs rounded-lg">
+          <source src={msg.content} type="video/mp4" />
+          Votre navigateur ne supporte pas la vidéo.
+        </video>
+      );
+
+    // ✅ Sécurité : si jamais un type inattendu arrive
+    default:
+      // Si c’est une URL d’image mais type inconnu
+      if (msg.content?.match(/\.(jpg|jpeg|png|gif)$/i)) {
         return (
           <img
             src={msg.content}
             alt="image envoyée"
             className="max-w-xs rounded-lg"
-            onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
           />
         );
-
-      case "AUDIO":
-        return (
-          <audio controls className="w-64">
-            <source src={msg.content} type="audio/mpeg" />
-            Votre navigateur ne supporte pas l’audio.
-          </audio>
-        );
-
-      case "VIDEO":
+      }
+      // Si c’est une URL vidéo mais type inconnu
+      if (msg.content?.match(/\.(mp4|webm|ogg)$/i)) {
         return (
           <video controls className="max-w-xs rounded-lg">
             <source src={msg.content} type="video/mp4" />
-            Votre navigateur ne supporte pas la vidéo.
           </video>
         );
-
-      default:
-        return <div>Message non supporté</div>;
-    }
+      }
+      // Sinon fallback
+      return <div>Message non supporté</div>;
   }
+}
+
 
 
   function scrollToBottom() {
