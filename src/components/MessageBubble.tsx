@@ -18,16 +18,16 @@ export default function MessageBubble({ msg, currentUserId, onDelete }: Props) {
       case "TEXT":
         return <div className="whitespace-pre-wrap break-words">{msg.content}</div>;
       case "IMAGE":
-        return <img src={msg.content} alt="image" className="max-w-xs rounded-lg" />;
+        return <img src={msg.content} alt="image" className="max-w-full sm:max-w-xs md:max-w-sm rounded-lg" />;
       case "AUDIO":
         return (
-          <audio controls className="w-64">
+          <audio controls className="w-48 sm:w-64">
             <source src={msg.content} type="audio/mpeg" />
           </audio>
         );
       case "VIDEO":
         return (
-          <video controls className="max-w-xs rounded-lg">
+          <video controls className="max-w-full sm:max-w-xs md:max-w-sm rounded-lg">
             <source src={msg.content} type="video/mp4" />
           </video>
         );
@@ -39,11 +39,12 @@ export default function MessageBubble({ msg, currentUserId, onDelete }: Props) {
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"} mb-2`}>
       <div
-        className={`px-3 py-2 rounded-2xl max-w-md shadow-sm relative group ${
-          mine
+        className={`px-3 py-2 rounded-2xl shadow-sm relative group
+          max-w-[85%] sm:max-w-[75%] md:max-w-md
+          ${mine
             ? "bg-blue-600 text-white"
             : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700"
-        }`}
+          }`}
       >
         {/* Contenu du message */}
         {renderContent()}
