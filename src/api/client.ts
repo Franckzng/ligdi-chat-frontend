@@ -1,5 +1,4 @@
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, ""); 
-// ⚡️ supprime le slash final si présent (ex: https://test-gandyam.onrender.com/ → https://test-gandyam.onrender.com)
 
 // Debug : afficher l’URL API en console (utile en prod)
 console.log("API_URL =", API_URL);

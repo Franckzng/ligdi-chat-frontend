@@ -6,7 +6,6 @@ import { connectSocket, getSocket } from "../api/socket";
 import MessageBubble from "../components/MessageBubble";
 import type { Message, Conversation, User } from "../types";
 
-/* --- Hook scroll intelligent (intégré) --- */
 function useSmartScroll(containerId: string, deps: any[] = []) {
   const shouldScrollRef = useRef(true);
 
