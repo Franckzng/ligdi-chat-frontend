@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { connectSocket, getSocket } from "../api/socket";
 import MessageBubble from "../components/MessageBubble";
 import type { Message, Conversation, User } from "../types";
+import "./Chat.css"; // ✅ Import du CSS extrait
 
 function useSmartScroll(containerId: string, deps: any[] = []) {
   const shouldScrollRef = useRef(true);
@@ -14,6 +15,7 @@ function useSmartScroll(containerId: string, deps: any[] = []) {
     if (!container) return;
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
+      // si on est proche du bas (100px), on continue à autoscroller
       shouldScrollRef.current = scrollHeight - scrollTop - clientHeight < 100;
     };
     container.addEventListener("scroll", handleScroll);
@@ -105,6 +107,8 @@ export default function ChatPage() {
       if (active?.id === msg.conversationId) {
         setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
       }
+      // sécurité: tenter de scroller en bas
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     });
 
     socket.on("message_deleted", ({ id }: { id: number }) => {
@@ -151,6 +155,19 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Scroll auto au focus input (utile pour clavier mobile)
+  useEffect(() => {
+    const input = msgInputRef.current;
+    if (!input) return;
+    const handler = () => {
+      setTimeout(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 200); // laisse le clavier s'ouvrir
+    };
+    input.addEventListener("focus", handler);
+    return () => input.removeEventListener("focus", handler);
+  }, []);
 
   // Envoyer un message
   async function sendMessage(content: string) {
@@ -224,7 +241,7 @@ export default function ChatPage() {
 
   // Autre participant
   function otherUser(conv: Conversation): User {
-    if (!me) return { id: 0, email: "" };
+    if (!me) return { id: 0, email: "" } as User;
     return conv.userA.id === me.id ? conv.userB : conv.userA;
   }
 
@@ -412,7 +429,7 @@ export default function ChatPage() {
               {/* Messages */}
               <div
                 id="messages-container"
-                className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 sm:space-y-3 bg-gray-50 dark:bg-gray-900/40"
+                className="messages flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 sm:space-y-3 bg-gray-50 dark:bg-gray-900/40"
                 style={{ scrollBehavior: "smooth" }}
               >
                 {messages.length === 0 && (
@@ -424,7 +441,12 @@ export default function ChatPage() {
                 )}
 
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} msg={m} currentUserId={me?.id ?? 0} onDelete={deleteMessage} />
+                  <MessageBubble
+                    key={m.id}
+                    msg={m}
+                    currentUserId={me?.id ?? 0}
+                    onDelete={deleteMessage}
+                  />
                 ))}
 
                 {typingUsers.length > 0 && (
@@ -447,7 +469,7 @@ export default function ChatPage() {
                     if (input) input.value = "";
                   }
                 }}
-                className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-2 sm:p-3"
+                className="input-bar border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-2 sm:p-3"
               >
                 <div className="flex items-center gap-2">
                   <input
